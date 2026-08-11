@@ -81,6 +81,7 @@ Then sign in with the Auth user from step 4.
 | **Orders** | Search/filter, fee breakdown (subtotal + GST + shipping), open proof, mark status, open **Invoice** (screenshot/print for customer) |
 | **Catalog / stock** | Browse/filter list; **Add** / **Edit** on the detail form (upload / replace / remove product image); Unlist/Delete from the table |
 | **Streams** | List schedule; **Add** / **Edit** on a dedicated form; Delete from the table |
+| **Home** | Edit the homepage highlight card (or hide it) |
 
 Sold-out behavior for customers: stock `0` disables Add (shows **Sold out**). Unlisted items disappear from the catalog.
 
@@ -96,6 +97,19 @@ You can still use Supabase Table Editor / Storage for the same tables if you wan
 | `npm run build` | Production FE build |
 | `npm run preview` | Preview built FE |
 
-## Deploy FE (free)
+## Deploy FE (free) — Vercel
 
-Build with `npm run build`, host `dist/` on Cloudflare Pages / Vercel / Netlify. Set the same `VITE_SUPABASE_*` env vars in the host before building.
+Yes: static Vite build on Vercel free tier is enough. Supabase stays where it is; Vercel only hosts the frontend.
+
+1. Push this repo to GitHub (if it isn’t already).
+2. Go to [vercel.com](https://vercel.com) → **Add New Project** → import the repo.
+3. Framework preset: **Vite** (or leave defaults). Build: `npm run build`, output: `dist`.
+4. **Environment Variables** (same values as `.env.local`):
+   - `VITE_SUPABASE_URL`
+   - `VITE_SUPABASE_ANON_KEY`
+5. Deploy. You’ll get a `*.vercel.app` URL; custom domain is optional later.
+
+After each push to the connected branch, Vercel rebuilds automatically. Admin stays at `https://your-site.vercel.app/#admin`.
+
+`vercel.json` in the repo already points build/output at Vite’s `dist/`.
+
