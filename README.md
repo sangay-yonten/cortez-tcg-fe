@@ -1,76 +1,101 @@
-# React + TypeScript + Vite
+# Cortez TCG Live
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Minimal One Piece TCG shop for the Bhutanese market: loose packs, raw mint cards, booster boxes, cart, bank-transfer checkout, and a private admin desk — all on free Supabase.
 
-Currently, two official plugins are available:
+## Stack (free-friendly)
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- **Frontend:** Vite + React (this repo root)
+- **Backend:** [Supabase](https://supabase.com) free tier (Postgres + Storage + Auth + RLS)
+- **Admin:** in-app desk at `#admin` (Supabase Auth email/password) — plus Table Editor if you prefer
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+```text
+src/                 React shop + admin
+supabase/
+  migrations/        Schema, RLS, create_order, categories
+  seed.sql           Base catalog + shipping + payment + streams
+.env.example         VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## One-time Supabase setup
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+1. Create a free project at [supabase.com](https://supabase.com).
+2. **SQL Editor** — run in order:
+   - [`supabase/migrations/20260811120000_init.sql`](supabase/migrations/20260811120000_init.sql)
+   - [`supabase/migrations/20260811220000_categories_and_admin.sql`](supabase/migrations/20260811220000_categories_and_admin.sql)  
+     (adds `category`, raw/box samples, admin RLS)
+   - [`supabase/migrations/20260811230000_admin_delete_policy.sql`](supabase/migrations/20260811230000_admin_delete_policy.sql)
+   - [`supabase/migrations/20260811240000_product_meta_and_streams_admin.sql`](supabase/migrations/20260811240000_product_meta_and_streams_admin.sql)  
+     (`card_number`, pack details, streams admin write)
+   - [`supabase/migrations/20260811250000_stream_schedule.sql`](supabase/migrations/20260811250000_stream_schedule.sql)  
+     (stream URL, start/end window, `ended` status)
+   - [`supabase/migrations/20260811260000_drop_product_short_name.sql`](supabase/migrations/20260811260000_drop_product_short_name.sql)  
+     (single product `name`; drops `short_name`)
+   - [`supabase/migrations/20260811270000_product_images_storage.sql`](supabase/migrations/20260811270000_product_images_storage.sql)  
+     (public `product-images` bucket for catalog uploads)
+   - [`supabase/migrations/20260811280000_stream_urls_array.sql`](supabase/migrations/20260811280000_stream_urls_array.sql)  
+     (`stream_urls` JSON array of watch links; replaces `stream_url`)
+   - [`supabase/migrations/20260811290000_product_image_placeholder.sql`](supabase/migrations/20260811290000_product_image_placeholder.sql)  
+     (legacy `op05`–`op08` image keys → `placeholder`)
+   - [`supabase/migrations/20260811300000_home_highlight.sql`](supabase/migrations/20260811300000_home_highlight.sql)  
+     (`shop_settings.home_highlight` for the homepage promo card)
+   - [`supabase/seed.sql`](supabase/seed.sql)  
+     (base catalog + shipping + payment + streams)
+3. **Project Settings → API**: copy Project URL + `anon` `public` key into `.env.local`:
+   ```bash
+   cp .env.example .env.local
+   ```
+4. **Create your admin login** (Authentication → Users → Add user):
+   - Email + password you will use on the shop desk
+   - No special role needed — any authenticated user can manage inventory/orders via RLS
+5. Start:
+   ```bash
+   npm install
+   npm run dev
+   ```
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+## Shop categories
 
-```
-# cortez-tcg-fe
+One shared `products` table with `category`:
+
+| Category | Shop entry | Optional details |
+| --- | --- | --- |
+| `loose_pack` | Loose Packs | `product_pack_details` (set code) |
+| `raw_card` | Raw Mint Cards | `product_card_details` (set, number, rarity, condition, language) |
+| `booster_box` | Booster Boxes | `product_box_details` (packs per box, sealed) |
+
+Optional `compare_at` on products is the base/list price when an item is on sale; checkout always charges `price` (the sale or normal amount).
+
+Same cart / checkout / stock rules for all.
+
+## Admin desk
+
+Open manually:
+
+- Menu → **Admin login**, or
+- `http://localhost:5173/#admin`
+
+Then sign in with the Auth user from step 4.
+
+| Tab | What you do |
+| --- | --- |
+| **Orders** | Search/filter, fee breakdown (subtotal + GST + shipping), open proof, mark status, open **Invoice** (screenshot/print for customer) |
+| **Catalog / stock** | Browse/filter list; **Add** / **Edit** on the detail form (upload / replace / remove product image); Unlist/Delete from the table |
+| **Streams** | List schedule; **Add** / **Edit** on a dedicated form; Delete from the table |
+
+Sold-out behavior for customers: stock `0` disables Add (shows **Sold out**). Unlisted items disappear from the catalog.
+
+## Daily ops (without admin UI)
+
+You can still use Supabase Table Editor / Storage for the same tables if you want.
+
+## Scripts
+
+| Command | Purpose |
+| --- | --- |
+| `npm run dev` | Local shop |
+| `npm run build` | Production FE build |
+| `npm run preview` | Preview built FE |
+
+## Deploy FE (free)
+
+Build with `npm run build`, host `dist/` on Cloudflare Pages / Vercel / Netlify. Set the same `VITE_SUPABASE_*` env vars in the host before building.
