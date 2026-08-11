@@ -1,14 +1,30 @@
-import { trendingProducts, type Product } from "../data/products";
-import { streams } from "../data/streams";
+import type { Product, ProductCategory } from "../data/products";
+import {
+  homeHighlightIsVisible,
+  type HomeHighlightAction,
+} from "../lib/homeHighlight";
 import { formatNu } from "../lib/money";
+import { useShop } from "../lib/ShopContext";
+import {
+  formatStreamWhen,
+  sortStreamsByPriority,
+  streamStatusLabel,
+} from "../lib/streamSchedule";
+import CategoryCards from "./CategoryCards";
 import { CartIcon } from "./Icons";
 import CoverCarousel from "./CoverCarousel";
+import { DealRailSkeleton, StreamRailSkeleton } from "./Skeleton";
+import StreamWatchLinks from "./StreamWatchLinks";
+
+const HOME_DEAL_LIMIT = 6;
+const HOME_STREAM_LIMIT = 6;
 
 type HomePageProps = {
   addedId: string | null;
   onAddToCart: (id: string) => void;
-  onSeeAllPacks: () => void;
-  onBrowseStreams: () => void;
+  onOpenCatalog: (category: ProductCategory) => void;
+  onOpenShop: () => void;
+  onOpenSchedule: () => void;
 };
 
 function badgeLabel(badge: Product["badge"]) {
@@ -18,12 +34,44 @@ function badgeLabel(badge: Product["badge"]) {
   return null;
 }
 
+function runHighlightAction(
+  action: HomeHighlightAction,
+  url: string | null | undefined,
+  onOpenSchedule: () => void,
+  onOpenShop: () => void,
+) {
+  if (action === "schedule") {
+    onOpenSchedule();
+    return;
+  }
+  if (action === "shop") {
+    onOpenShop();
+    return;
+  }
+  const href = url?.trim();
+  if (href) window.open(href, "_blank", "noopener,noreferrer");
+}
+
 export default function HomePage({
   addedId,
   onAddToCart,
-  onSeeAllPacks,
-  onBrowseStreams,
+  onOpenCatalog,
+  onOpenShop,
+  onOpenSchedule,
 }: HomePageProps) {
+  const { products, streams, settings, loading, ready } = useShop();
+  const highlight = settings.homeHighlight;
+  const showHighlight = homeHighlightIsVisible(highlight);
+  const showSkeletons = !ready;
+  const trendingProducts = products
+    .filter(
+      (product) => product.badge === "hot" || product.badge === "favorite",
+    )
+    .slice(0, HOME_DEAL_LIMIT);
+  const orderedStreams = sortStreamsByPriority(streams)
+    .filter((stream) => stream.status !== "ended")
+    .slice(0, HOME_STREAM_LIMIT);
+
   return (
     <>
       <section className="bio" id="bio" aria-labelledby="bio-heading">
@@ -42,34 +90,66 @@ export default function HomePage({
         </p>
       </section>
 
-      <section className="viral" id="viral" aria-labelledby="viral-heading">
-        <div className="viral-card">
-          <p className="viral-kicker">Going viral</p>
-          <h2 id="viral-heading" className="viral-title">
-            Last night&apos;s OP-05 chase hit 40K views
-          </h2>
-          <p className="viral-copy">
-            Manga rare pulled live on stream — catch the replay, then lock a
-            slot for tonight&apos;s opening.
-          </p>
-          <div className="viral-actions">
-            <button
-              type="button"
-              className="viral-primary"
-              onClick={onBrowseStreams}
-            >
-              Watch schedule
-            </button>
-            <button
-              type="button"
-              className="viral-secondary"
-              onClick={onSeeAllPacks}
-            >
-              Shop latest packs
-            </button>
+      <CategoryCards onSelect={onOpenCatalog} />
+
+      {showHighlight && (
+        <section className="viral" id="viral" aria-labelledby="viral-heading">
+          <div className="viral-card">
+            {highlight.kicker.trim() ? (
+              <p className="viral-kicker">{highlight.kicker}</p>
+            ) : null}
+            {highlight.title.trim() ? (
+              <h2 id="viral-heading" className="viral-title">
+                {highlight.title}
+              </h2>
+            ) : (
+              <h2 id="viral-heading" className="sr-only">
+                Highlight
+              </h2>
+            )}
+            {highlight.body.trim() ? (
+              <p className="viral-copy">{highlight.body}</p>
+            ) : null}
+            {(highlight.primaryLabel.trim() ||
+              highlight.secondaryLabel.trim()) && (
+              <div className="viral-actions">
+                {highlight.primaryLabel.trim() ? (
+                  <button
+                    type="button"
+                    className="viral-primary"
+                    onClick={() =>
+                      runHighlightAction(
+                        highlight.primaryAction,
+                        highlight.primaryUrl,
+                        onOpenSchedule,
+                        onOpenShop,
+                      )
+                    }
+                  >
+                    {highlight.primaryLabel}
+                  </button>
+                ) : null}
+                {highlight.secondaryLabel.trim() ? (
+                  <button
+                    type="button"
+                    className="viral-secondary"
+                    onClick={() =>
+                      runHighlightAction(
+                        highlight.secondaryAction,
+                        highlight.secondaryUrl,
+                        onOpenSchedule,
+                        onOpenShop,
+                      )
+                    }
+                  >
+                    {highlight.secondaryLabel}
+                  </button>
+                ) : null}
+              </div>
+            )}
           </div>
-        </div>
-      </section>
+        </section>
+      )}
 
       <section
         className="rail-section"
@@ -82,31 +162,56 @@ export default function HomePage({
               Upcoming Streams
             </h2>
             <p className="rail-subtitle">
-              Daily openings worth setting a reminder for
+              {showSkeletons
+                ? "Loading schedule…"
+                : "Daily openings worth setting a reminder for"}
             </p>
           </div>
         </div>
 
-        <ul className="rail" aria-label="Upcoming live streams">
-          {streams.map((stream) => (
-            <li key={stream.id} className="stream-card">
-              <div className="stream-top">
-                <span className={`stream-status is-${stream.status}`}>
-                  {stream.status === "live"
-                    ? "Live"
-                    : stream.status === "tonight"
-                      ? "Tonight"
-                      : "Upcoming"}
+        {showSkeletons ? (
+          <StreamRailSkeleton />
+        ) : (
+          <ul className="rail" aria-label="Upcoming live streams">
+            {orderedStreams.map((stream) => {
+              const hasLinks = (stream.streamUrls?.length ?? 0) > 0;
+              const isLive = stream.status === "live";
+              return (
+                <li
+                  key={stream.id}
+                  className={`stream-card${stream.status === "ended" ? " is-ended" : ""}${isLive && hasLinks ? " is-live-link" : ""}`}
+                >
+                  <div className="stream-top">
+                    <span className={`stream-status is-${stream.status}`}>
+                      {streamStatusLabel(stream.status)}
+                    </span>
+                    <span className="stream-when">
+                      {formatStreamWhen(stream)}
+                    </span>
+                  </div>
+                  <h3 className="stream-title">{stream.title}</h3>
+                  <p className="stream-focus">{stream.focus}</p>
+                  <StreamWatchLinks
+                    urls={stream.streamUrls}
+                    emphasizeLive={isLive}
+                  />
+                </li>
+              );
+            })}
+            <li className="rail-more">
+              <button
+                type="button"
+                className="rail-more-btn"
+                onClick={onOpenSchedule}
+              >
+                <span className="rail-more-label">View all</span>
+                <span className="rail-more-arrow" aria-hidden="true">
+                  →
                 </span>
-                <span className="stream-when">
-                  {stream.day} · {stream.time}
-                </span>
-              </div>
-              <h3 className="stream-title">{stream.title}</h3>
-              <p className="stream-focus">{stream.focus}</p>
+              </button>
             </li>
-          ))}
-        </ul>
+          </ul>
+        )}
       </section>
 
       <section
@@ -120,52 +225,77 @@ export default function HomePage({
               Hot Deals & Favorites
             </h2>
             <p className="rail-subtitle">
-              Trending picks the nakama keeps reordering
+              {showSkeletons
+                ? "Loading live picks…"
+                : loading
+                  ? "Refreshing picks…"
+                  : "Trending picks the nakama keeps reordering"}
             </p>
           </div>
-          <button type="button" className="see-all-btn" onClick={onSeeAllPacks}>
-            See all
-          </button>
         </div>
 
-        <ul className="rail" aria-label="Trending products">
-          {trendingProducts.map((product) => {
-            const label = badgeLabel(product.badge);
-            return (
-              <li key={product.id} className="deal-card">
-                {label && (
-                  <span className={`deal-badge is-${product.badge}`}>
-                    {label}
-                  </span>
-                )}
-                <img
-                  src={product.image}
-                  alt=""
-                  className="deal-image"
-                  width={120}
-                  height={170}
-                />
-                <h3 className="deal-name">{product.shortName}</h3>
-                <p className="deal-price">
-                  {product.compareAt != null && (
-                    <span className="deal-compare">
-                      {formatNu(product.compareAt)}
+        {showSkeletons ? (
+          <DealRailSkeleton />
+        ) : (
+          <ul className="rail" aria-label="Trending products">
+            {trendingProducts.map((product) => {
+              const label = badgeLabel(product.badge);
+              const outOfStock = product.stock != null && product.stock <= 0;
+              return (
+                <li key={product.id} className="deal-card">
+                  {label && (
+                    <span className={`deal-badge is-${product.badge}`}>
+                      {label}
                     </span>
                   )}
-                  <span>{formatNu(product.price)}</span>
-                </p>
-                <button
-                  type="button"
-                  className={`add-btn compact${addedId === product.id ? " is-added" : ""}`}
-                  onClick={() => onAddToCart(product.id)}
-                >
-                  <span>{addedId === product.id ? "Added" : "Add"}</span>
-                  <CartIcon />
-                </button>
-              </li>
-            );
-          })}
-        </ul>
+                  <img
+                    src={product.image}
+                    alt=""
+                    className="deal-image"
+                    width={120}
+                    height={170}
+                  />
+                  <h3 className="deal-name">{product.name}</h3>
+                  <p className="deal-price">
+                    {product.compareAt != null && (
+                      <span className="deal-compare">
+                        {formatNu(product.compareAt)}
+                      </span>
+                    )}
+                    <span>{formatNu(product.price)}</span>
+                  </p>
+                  <button
+                    type="button"
+                    className={`add-btn compact${addedId === product.id ? " is-added" : ""}`}
+                    disabled={outOfStock}
+                    onClick={() => onAddToCart(product.id)}
+                  >
+                    <span>
+                      {outOfStock
+                        ? "Sold out"
+                        : addedId === product.id
+                          ? "Added"
+                          : "Add"}
+                    </span>
+                    <CartIcon />
+                  </button>
+                </li>
+              );
+            })}
+            <li className="rail-more">
+              <button
+                type="button"
+                className="rail-more-btn"
+                onClick={onOpenShop}
+              >
+                <span className="rail-more-label">View all</span>
+                <span className="rail-more-arrow" aria-hidden="true">
+                  →
+                </span>
+              </button>
+            </li>
+          </ul>
+        )}
       </section>
     </>
   );
