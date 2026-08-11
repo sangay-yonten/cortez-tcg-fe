@@ -1,4 +1,4 @@
-export type ShippingZoneId = 'thimphu' | 'paro' | 'rest-bhutan'
+export type ShippingZoneId = string
 
 export type ShippingZone = {
   id: ShippingZoneId
