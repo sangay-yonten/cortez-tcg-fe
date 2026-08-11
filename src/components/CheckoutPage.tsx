@@ -2,13 +2,11 @@ import { useEffect, useId, useState, type FormEvent } from "react";
 import type { CartLine } from "./CartPage";
 import {
   DEFAULT_SHIPPING_ZONE,
-  getShippingZone,
-  shippingZones,
   type ShippingZoneId,
 } from "../data/shipping";
-import { createOrderId, paymentAccounts } from "../data/payment";
-import { calcCartTotal, calcGst, formatNu, GST_RATE } from "../lib/money";
-import paymentQr from "../assets/payment-qr.png";
+import { calcCartTotal, calcGst, formatNu } from "../lib/money";
+import { useShop } from "../lib/ShopContext";
+import { submitOrder } from "../lib/shopApi";
 
 type CheckoutStep = 1 | 2 | 3;
 
@@ -70,6 +68,7 @@ export default function CheckoutPage({
   onOrderComplete,
 }: CheckoutPageProps) {
   const formId = useId();
+  const { shippingZones, settings } = useShop();
   const [step, setStep] = useState<CheckoutStep>(1);
   const [details, setDetails] = useState<CheckoutDetails>(emptyDetails);
   const [reference, setReference] = useState("");
@@ -78,22 +77,36 @@ export default function CheckoutPage({
   const [copiedAccount, setCopiedAccount] = useState<string | null>(null);
   const [orderId, setOrderId] = useState<string | null>(null);
   const [touched, setTouched] = useState<TouchedMap>({});
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
+  const gstRate = settings.gstRate;
+  const zone =
+    shippingZones.find((option) => option.id === details.zoneId) ??
+    shippingZones[0];
   const subtotal = items.reduce(
     (sum, line) => sum + line.product.price * line.quantity,
     0,
   );
-  const gst = calcGst(subtotal);
-  const goodsTotal = calcCartTotal(subtotal);
-  const zone = getShippingZone(details.zoneId);
-  const shipping = zone.fee;
+  const gst = calcGst(subtotal, gstRate);
+  const goodsTotal = calcCartTotal(subtotal, gstRate);
+  const shipping = zone?.fee ?? 0;
   const grandTotal = goodsTotal + shipping;
-  const gstPercent = Math.round(GST_RATE * 100);
+  const gstPercent = Math.round(gstRate * 100);
 
   const detailsErrors = getDetailsErrors(details);
   const paymentErrors = getPaymentErrors(reference, proofFile);
   const detailsValid = Object.keys(detailsErrors).length === 0;
   const paymentValid = Object.keys(paymentErrors).length === 0;
+
+  useEffect(() => {
+    if (
+      shippingZones.length > 0 &&
+      !shippingZones.some((option) => option.id === details.zoneId)
+    ) {
+      setDetails((prev) => ({ ...prev, zoneId: shippingZones[0].id }));
+    }
+  }, [shippingZones, details.zoneId]);
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -143,12 +156,38 @@ export default function CheckoutPage({
     setStep(2);
   }
 
-  function handlePaymentSubmit(event: FormEvent) {
+  async function handlePaymentSubmit(event: FormEvent) {
     event.preventDefault();
     setTouched((prev) => ({ ...prev, reference: true, proof: true }));
-    if (!paymentValid) return;
-    setOrderId(createOrderId());
-    setStep(3);
+    if (!paymentValid || !proofFile) return;
+
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const id = await submitOrder({
+        fullName: details.fullName,
+        phone: details.phone,
+        address: details.address,
+        zoneId: details.zoneId,
+        notes: details.notes,
+        paymentReference: reference,
+        proofFile,
+        items: items.map((line) => ({
+          productId: line.product.id,
+          quantity: line.quantity,
+        })),
+      });
+      setOrderId(id);
+      setStep(3);
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Could not place order. Please try again.";
+      setSubmitError(message);
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   async function copyAccount(accountNumber: string) {
@@ -224,7 +263,7 @@ export default function CheckoutPage({
               />
               <div className="checkout-summary-line-copy">
                 <span className="checkout-summary-line-name">
-                  {product.shortName}
+                  {product.name}
                 </span>
                 <span className="checkout-summary-line-qty">
                   Qty {quantity}
@@ -249,7 +288,7 @@ export default function CheckoutPage({
             <span className="checkout-summary-amount">{formatNu(gst)}</span>
           </div>
           <div className="checkout-summary-row">
-            <span>Shipping · {zone.label}</span>
+            <span>Shipping · {zone?.label ?? "—"}</span>
             <span className="checkout-summary-amount">
               {shipping === 0 ? "Free" : formatNu(shipping)}
             </span>
@@ -405,7 +444,7 @@ export default function CheckoutPage({
 
           <div className="payment-qr-block">
             <img
-              src={paymentQr}
+              src={settings.paymentQrUrl}
               alt="Cortez TCG Live bank payment QR code"
               className="payment-qr"
               width={220}
@@ -417,7 +456,7 @@ export default function CheckoutPage({
           </div>
 
           <ul className="payment-accounts">
-            {paymentAccounts.map((account) => (
+            {settings.paymentAccounts.map((account) => (
               <li key={account.accountNumber} className="payment-account">
                 <div>
                   <p className="payment-bank">{account.bank}</p>
@@ -488,21 +527,28 @@ export default function CheckoutPage({
             />
           )}
 
+          {submitError && (
+            <p className="field-error" role="alert">
+              {submitError}
+            </p>
+          )}
+
           <div className="checkout-actions">
             <button
               type="button"
               className="cart-secondary-btn"
               onClick={() => setStep(1)}
+              disabled={submitting}
             >
               Back
             </button>
             <button
               type="submit"
               className="cart-primary-btn"
-              disabled={!paymentValid}
-              aria-disabled={!paymentValid}
+              disabled={!paymentValid || submitting}
+              aria-disabled={!paymentValid || submitting}
             >
-              Place order
+              {submitting ? "Placing order…" : "Place order"}
             </button>
           </div>
         </form>
@@ -516,8 +562,8 @@ export default function CheckoutPage({
           </h2>
           <p className="confirm-copy">
             We&apos;ll verify your transfer and confirm shipping to{" "}
-            <strong>{zone.label}</strong>. Keep this page's screenshot and order
-            ID for WhatsApp or call support.
+            <strong>{zone?.label ?? "your zone"}</strong>. Keep this page&apos;s
+            screenshot and order ID for WhatsApp or call support.
           </p>
           <p className="confirm-order-id">{orderId}</p>
           <dl className="confirm-meta">

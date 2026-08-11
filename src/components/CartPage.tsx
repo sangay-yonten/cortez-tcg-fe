@@ -1,5 +1,6 @@
 import type { Product } from "../data/products";
-import { calcCartTotal, calcGst, formatNu, GST_RATE } from "../lib/money";
+import { calcCartTotal, calcGst, formatNu } from "../lib/money";
+import { useShop } from "../lib/ShopContext";
 
 export type CartLine = {
   product: Product;
@@ -34,14 +35,16 @@ export default function CartPage({
   onContinueShopping,
   onCheckout,
 }: CartPageProps) {
+  const { settings } = useShop();
+  const gstRate = settings.gstRate;
   const subtotal = items.reduce(
     (sum, line) => sum + line.product.price * line.quantity,
     0,
   );
-  const gst = calcGst(subtotal);
-  const total = calcCartTotal(subtotal);
+  const gst = calcGst(subtotal, gstRate);
+  const total = calcCartTotal(subtotal, gstRate);
   const itemCount = items.reduce((sum, line) => sum + line.quantity, 0);
-  const gstPercent = Math.round(GST_RATE * 100);
+  const gstPercent = Math.round(gstRate * 100);
 
   return (
     <section className="cart-page" aria-labelledby="cart-heading">
@@ -66,7 +69,7 @@ export default function CartPage({
             className="cart-primary-btn"
             onClick={onContinueShopping}
           >
-            Browse Loose Packs
+            Browse Shop Catalog
           </button>
         </div>
       ) : (
